@@ -1,0 +1,5 @@
+<RCC>
+    <qresource prefix="/plugins/KhartesTools" >
+        <file>icon.png</file>
+    </qresource>
+</RCC>
