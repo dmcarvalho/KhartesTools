@@ -27,7 +27,7 @@ import resources
 # Import the code for the dialog
 from khartes_tolls_dialog import KhartesToolsDialog
 import os.path
-
+from KhartesTools.STLBuilder.STLBuilder import STLBuilder
 
 class KhartesTools:
     """QGIS Plugin Implementation."""
@@ -59,7 +59,7 @@ class KhartesTools:
                 QCoreApplication.installTranslator(self.translator)
 
         # Create the dialog (after translation) and keep reference
-        self.dlg = KhartesToolsDialog()
+        self.dlg = STLBuilder()
 
         # Declare instance attributes
         self.actions = []
