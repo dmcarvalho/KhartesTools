@@ -12,15 +12,12 @@ from PyQt4.QtCore import pyqtSlot
 
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
-os.path.dirname(__file__), 'STLBuilder.ui'))
-
-
-
+os.path.dirname(__file__), 'stl_builder.ui'))
 
 
 
 class STLBuilder(QtGui.QDialog, FORM_CLASS):
-    def __init__(self, parent=None):
+    def __init__(self, iface, parent=None):
         """Constructor."""
         super(STLBuilder, self).__init__(parent)
         # Set up the user interface from Designer.
@@ -28,8 +25,27 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         # self.<objectname>, and you can use autoconnect slots - see
         # http://qt-project.org/doc/qt-4.8/designer-using-a-ui-file.html
         # #widgets-and-dialogs-with-auto-connect
+        self.iface = iface
+        
+        self.message = None
+        self.geometries_blocks = None 
+              
         self.setupUi(self)
     
+
+    def its_ok(self):
+        layers = self.iface.legendInterface().layers()
+        its_ok = False
+        if layers:
+            for layer in layers:
+                if layer.type() == 1 and self.iface.legendInterface().isLayerVisible(layer):
+                    its_ok =  True
+                    break
+            self.message = self.tr("No visible raster layer loaded")
+        elif not layers:
+            self.message = self.tr("No layer loaded")
+        return its_ok
+        
     @pyqtSlot()    
     def on_builder_pushButton_clicked(self):
         noDataValue = -9999

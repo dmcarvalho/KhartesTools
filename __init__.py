@@ -31,5 +31,5 @@ def classFactory(iface):  # pylint: disable=invalid-name
     :type iface: QgsInterface
     """
     #
-    from .khartes_tolls import KhartesTools
+    from .khartes_tools import KhartesTools
     return KhartesTools(iface)

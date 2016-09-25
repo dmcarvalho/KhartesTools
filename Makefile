@@ -38,15 +38,15 @@ LOCALES =
 # translation
 SOURCES = \
 	__init__.py \
-	khartes_tolls.py khartes_tolls_dialog.py
+	khartes_tolls.py
 
 PLUGINNAME = KhartesTools
 
 PY_FILES = \
 	__init__.py \
-	khartes_tolls.py khartes_tolls_dialog.py
+	khartes_tolls.py 
 
-UI_FILES = khartes_tolls_dialog_base.ui
+UI_FILES = 
 
 EXTRAS = metadata.txt icon.png
 

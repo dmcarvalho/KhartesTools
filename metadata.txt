@@ -29,7 +29,6 @@ repository=https://github.com/dmcarvalho/khartestools
 tags=dem, export, stl, 3d
 
 homepage=khartes.com.br
-category=Plugins
 icon=icon.png
 # experimental flag
 experimental=False
