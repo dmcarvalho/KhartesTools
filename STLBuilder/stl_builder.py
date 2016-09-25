@@ -26,27 +26,32 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         # http://qt-project.org/doc/qt-4.8/designer-using-a-ui-file.html
         # #widgets-and-dialogs-with-auto-connect
         self.iface = iface
-        
+        self.canvas = self.iface.mapCanvas()
         self.message = None
         self.geometries_blocks = None 
-              
+        self.layers = {}      
         self.setupUi(self)
     
 
     def its_ok(self):
-        layers = self.iface.legendInterface().layers()
         its_ok = False
-        if layers:
-            for layer in layers:
-                if layer.type() == 1 and self.iface.legendInterface().isLayerVisible(layer):
-                    its_ok =  True
-                    break
+        self.layers = {}
+        for layer in self.canvas.layers():
+            if layer.type() == 1:
+                self.layers[layer.name()] = layer
+                its_ok =  True
+        if not its_ok:
             self.message = self.tr("No visible raster layer loaded")
-        elif not layers:
-            self.message = self.tr("No layer loaded")
         return its_ok
-        
+    
+    
+    def exec_(self, *args, **kwargs):
+        for layer_name in self.layers.keys():
+            self.layer_ComboBox.addItem(layer_name)
+            
+        return QtGui.QDialog.exec_(self, *args, **kwargs)
     @pyqtSlot()    
+    
     def on_builder_pushButton_clicked(self):
         noDataValue = -9999
         m2mm = 1000.0
