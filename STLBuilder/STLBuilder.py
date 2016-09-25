@@ -31,10 +31,9 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         self.setupUi(self)
     
     @pyqtSlot()    
-    def on_buttonBox_accepted(self):
+    def on_builder_pushButton_clicked(self):
         noDataValue = -9999
         m2mm = 1000.0
-        
         filePath = '/media/diego/SAMSUNG/srtm2stl/geo/raster/df_go.tif'
         outPutPath = '/media/diego/SAMSUNG/srtm2stl/geo/resultado/'
         

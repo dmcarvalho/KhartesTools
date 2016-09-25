@@ -21,7 +21,7 @@
  ***************************************************************************/
 """
 from PyQt4.QtCore import QSettings, QTranslator, qVersion, QCoreApplication
-from PyQt4.QtGui import QAction, QIcon
+from PyQt4.QtGui import QAction, QIcon, QMenu
 # Initialize Qt resources from file resources.py
 import resources
 # Import the code for the dialog
@@ -58,10 +58,10 @@ class KhartesTools:
             if qVersion() > '4.3.3':
                 QCoreApplication.installTranslator(self.translator)
 
-        # Create the dialog (after translation) and keep reference
-        self.dlg = STLBuilder()
-
         # Declare instance attributes
+        self.menuBar = self.iface.mainWindow().menuBar()
+
+
         self.actions = []
         self.menu = self.tr(u'&Khartes Tools')
         # TODO: We are going to let the user set this up in a future iteration
@@ -157,16 +157,44 @@ class KhartesTools:
 
         return action
 
+    def addMenu(self, parent, name, title, icon_path=None):
+        '''
+        Adds a QMenu
+        '''
+        child = QMenu(parent)
+        child.setObjectName(name)
+        child.setTitle(self.tr(title))
+        if icon_path:
+            child.setIcon(QIcon(icon_path))
+        parent.addMenu(child)
+        return child
+    
+    
     def initGui(self):
         """Create the menu entries and toolbar icons inside the QGIS GUI."""
 
-        icon_path = ':/plugins/KhartesTools/icon.png'
-        self.add_action(
-            icon_path,
-            text=self.tr(u'Khartes Tools'),
-            callback=self.run,
-            parent=self.iface.mainWindow())
+        self.khartesTools = QMenu(self.iface.mainWindow())
+        self.khartesTools.setObjectName(u'KhartesTools')
+        self.khartesTools.setTitle(self.tr('Khartes Tools'))
 
+        self.menuBar.insertMenu(self.iface.firstRightStandardMenu().menuAction(), self.khartesTools)
+
+
+        stl_builder = self.addMenu(self.khartesTools, u'STL Builder', self.tr('STL Builder'))
+
+
+
+        icon_path = ':/plugins/KhartesTools/icon.png'
+        action = self.add_action(
+            icon_path,
+            text=self.tr(u'STL Builder'),
+            callback=self.showSTLBuilder,
+            parent=stl_builder,
+            add_to_menu=True,
+            add_to_toolbar=False)
+        
+        stl_builder.addAction(action)
+        
 
     def unload(self):
         """Removes the plugin menu item and icon from QGIS GUI."""
@@ -179,14 +207,23 @@ class KhartesTools:
         del self.toolbar
 
 
+
     def run(self):
         """Run method that performs all the real work"""
         # show the dialog
-        self.dlg.show()
+        #self.dlg.show()
         # Run the dialog event loop
-        result = self.dlg.exec_()
+        #result = self.dlg.exec_()
         # See if OK was pressed
-        if result:
+        #if result:
             # Do something useful here - delete the line containing pass and
             # substitute with your code.
-            pass
+        pass
+
+
+    def showSTLBuilder(self):
+        '''
+        Shows the STLBuilder dialog
+        '''
+        dlg = STLBuilder()
+        dlg.exec_()
