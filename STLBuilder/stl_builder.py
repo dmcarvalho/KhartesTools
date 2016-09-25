@@ -13,7 +13,8 @@ from PyQt4.QtCore import pyqtSlot
 from numbers import Real
 # QGIS imports
 from qgis.gui import QgsRubberBand
-from qgis._core import QgsPoint, QgsGeometry, QgsCoordinateTransform
+from qgis._core import QgsPoint, QgsGeometry, QgsCoordinateTransform, QgsRectangle
+from qgis.core import QgsCoordinateReferenceSystem
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
 os.path.dirname(__file__), 'stl_builder.ui'))
@@ -85,7 +86,61 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
     @pyqtSlot(int)
     def on_layer_ComboBox_activated(self, i):
         self.paint_blocks()  
+
+    def calculateBlocks(self):
+        size_block_x = self.x_spinBox.value()
+        size_block_y = self.y_spinBox.value()
+        size_block_z = self.x_spinBox.value()
+        # dimensionless
+        h_scale = 1.0 / self.h_scale_spinBox.value()
+
+        layer_name = self.layer_ComboBox.currentText()
+        layer = self.layers[layer_name]
+ 
+       
+        source = layer.crs()
+        wgs84_crs = QgsCoordinateReferenceSystem(4326, QgsCoordinateReferenceSystem.EpsgCrsId)
+        transform = QgsCoordinateTransform(source, wgs84_crs)
         
+        rec = layer.extent()          
+        rec = transform.transform(rec)  
+           
+        #uppreleft
+        xmin = rec.xMinimum()
+        ymax = rec.yMaximum()         
+        #upertight
+        xmax = rec.xMaximum()
+        ymin = rec.yMinimum()
+        
+        width_general = calcBlockSize(xmin, xmax, h_scale, size_block_x, 1000)
+        height_general = calcBlockSize(ymin, ymax, h_scale, size_block_y, 1000)
+                
+        width_wgs_84 = xmax - xmin
+        height_wgs_84 = ymax - ymin
+
+        step_x = width_wgs_84/(width_general/size_block_x)
+        step_y = height_wgs_84/(height_general/size_block_y)
+        
+        num_blocks_x = int(width_general/size_block_x) + 1
+        num_blocks_y = int(height_general/size_block_y) + 1
+
+        transform = QgsCoordinateTransform(wgs84_crs, source)
+        blocks = []
+        for i in range(num_blocks_x):
+            x_min = xmin + i * step_x
+            if i < num_blocks_x-1:
+                x_max = x_min + step_x
+            else:
+                x_max = xmax
+            for j in range(num_blocks_y):          
+                y_max = ymax - j * step_y
+                if j < num_blocks_y-1:
+                    y_min = y_max - step_y
+                else:
+                    y_min = ymin
+                rec = transform.transform(QgsRectangle(x_min, y_min, x_max, y_max))
+                blocks.append(rec)
+        return blocks
          
     def paint_blocks(self):
         self.erase_blocks()
@@ -96,13 +151,15 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         rec = layer.extent()
         
         source = layer.crs()
+        print type(source)
         target = self.map_crs
-        if source != target:
-            transform = QgsCoordinateTransform(source, target)
-            rec = transform.transform(rec)
+        transform = QgsCoordinateTransform(source, target)
+        rec = transform.transform(rec)            
+        self.layer_extent = self.paint_block(rec, {'Color': QColor(0, 0, 255, 255), 'Width': 5, 'LineStyle': Qt.PenStyle(Qt.SolidLine)})        
         
-        self.layer_extent = self.paint_block(rec, {'Color': QColor(0, 0, 255, 255), 'Width': 5, 'LineStyle': Qt.PenStyle(Qt.SolidLine)})
-        self.blocks.append(self.paint_block(rec))
+        for rec in self.calculateBlocks():
+            rec = transform.transform(rec)
+            self.blocks.append(self.paint_block(rec))
 
     
     def paint_block(self, rec, params= {'Color': QColor(227, 26, 28, 255), 'Width': 2, 'LineStyle': Qt.PenStyle(Qt.DashDotLine)}):

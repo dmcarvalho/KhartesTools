@@ -11,9 +11,9 @@ m2mm = 1000.0
 
 class MDS():
     def __init__(self, file_path,
-                 output_path, size_block_x,
+                 size_block_x,
                  size_block_y, size_block_z,
-                 h_scale, z_scale):
+                 h_scale, z_scale, output_path=None):
 
         self._raster = gdal.Open(file_path)
         self._output_path = output_path
@@ -165,7 +165,8 @@ class MDS():
         self.setNumBlockLines(int(y_extension / self._size_block_y))
         self.setNumBlockColunms(int(x_extension / self._size_block_x))
 
-        return self.createRaster(params)
+        self.params = params
+        #return self.createRaster(params)
 
     def createRasterBlocks(self):
         self.block_files = []
