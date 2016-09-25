@@ -7,9 +7,13 @@ from raster import MDS
 from stl_writer import StlWriter
 
 from PyQt4 import QtGui, uic, QtCore
+from PyQt4.QtGui import QColor
+from PyQt4.QtCore import Qt
 from PyQt4.QtCore import pyqtSlot
+from numbers import Real
 # QGIS imports
-
+from qgis.gui import QgsRubberBand
+from qgis._core import QgsPoint, QgsGeometry, QgsCoordinateTransform
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
 os.path.dirname(__file__), 'stl_builder.ui'))
@@ -27,12 +31,24 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         # #widgets-and-dialogs-with-auto-connect
         self.iface = iface
         self.canvas = self.iface.mapCanvas()
+        try:
+            self.map_crs = self.canvas.mapSettings().destinationCrs()
+        except:
+            self.map_crs = self.canvas.mapRenderer().destinationCrs()
+        
+        output_folder_path = None
         self.message = None
         self.geometries_blocks = None 
-        self.layers = {}      
-        self.setupUi(self)
+        self.layers = {}   
+        self.layer_extent = None   
+        self.blocks = []
+        self.setupUi(self) 
+    def closeEvent(self, *args, **kwargs):
+        print 'afasdgasdfg'
+        self.erase_blocks()
+        return QtGui.QDialog.closeEvent(self, *args, **kwargs)
     
-
+    
     def its_ok(self):
         its_ok = False
         self.layers = {}
@@ -50,8 +66,97 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             self.layer_ComboBox.addItem(layer_name)
             
         return QtGui.QDialog.exec_(self, *args, **kwargs)
-    @pyqtSlot()    
     
+    def finished(self, *args, **kwargs):
+        self.erase_blocks()        
+        return QtGui.QDialog.finished(self, *args, **kwargs)
+    
+    @pyqtSlot(int, name='on_x_spinBox_valueChanged')
+    @pyqtSlot(int, name='on_y_spinBox_valueChanged')
+    @pyqtSlot(int, name='on_z_spinBox_valueChanged')
+    @pyqtSlot(int, name='on_h_scale_spinBox_valueChanged')
+    def spinbox_int_value(self, i):
+        self.paint_blocks()  
+
+    @pyqtSlot(float, name='on_v_exaggeration_doubleSpinBox_valueChanged')
+    def spinbox_double_value(self, i):
+        self.paint_blocks()
+        
+    @pyqtSlot(int)
+    def on_layer_ComboBox_activated(self, i):
+        self.paint_blocks()  
+        
+         
+    def paint_blocks(self):
+        self.erase_blocks()
+        self.blocks = []        
+        
+        layer_name = self.layer_ComboBox.currentText()
+        layer = self.layers[layer_name]
+        rec = layer.extent()
+        
+        source = layer.crs()
+        target = self.map_crs
+        if source != target:
+            transform = QgsCoordinateTransform(source, target)
+            rec = transform.transform(rec)
+        
+        self.layer_extent = self.paint_block(rec, {'Color': QColor(0, 0, 255, 255), 'Width': 5, 'LineStyle': Qt.PenStyle(Qt.SolidLine)})
+        self.blocks.append(self.paint_block(rec))
+
+    
+    def paint_block(self, rec, params= {'Color': QColor(227, 26, 28, 255), 'Width': 2, 'LineStyle': Qt.PenStyle(Qt.DashDotLine)}):
+        self.roi_x_max = rec.xMaximum()
+        self.roi_y_min = rec.yMinimum()
+        self.roi_x_min = rec.xMinimum()
+        self.roi_y_max = rec.yMaximum()
+
+        block = QgsRubberBand(self.canvas, True)
+        points = [QgsPoint(self.roi_x_max, self.roi_y_min), QgsPoint(self.roi_x_max, self.roi_y_max),
+                  QgsPoint(self.roi_x_min, self.roi_y_max), QgsPoint(self.roi_x_min, self.roi_y_min),
+                  QgsPoint(self.roi_x_max, self.roi_y_min)]
+        block.setToGeometry(QgsGeometry.fromPolyline(points), None)
+        block.setColor(params['Color'])
+        block.setWidth(params['Width'])
+        block.setLineStyle(params['LineStyle'])
+        self.canvas.refresh()
+        return block
+        
+    def erase_blocks(self):
+        if self.blocks:
+            for block in self.blocks:
+                self.erase_block(block)
+        if self.layer_extent:
+            self.erase_block(self.layer_extent)          
+        self.blocks = None
+        self.layer_extent = None
+
+    def erase_block(self, block):
+        self.canvas.scene().removeItem(block)
+        
+        
+    @pyqtSlot(bool)
+    def on_cancel_pushButton_clicked(self):
+        '''
+        Closes the dialog
+        '''
+        print 'entrou'
+        self.erase_blocks()
+        self.done(0)
+        
+    @pyqtSlot()    
+    def on_output_PushButton_clicked(self): 
+        '''
+        Defines destination folder
+        '''
+        fd = QtGui.QFileDialog()
+        self.output_folder_path = fd.getExistingDirectory()
+        if self.output_folder_path <> "":
+            self.carregado = True
+            self.output_folder_LineEdit.setText(self.output_folder_path)
+    
+    
+    @pyqtSlot()    
     def on_builder_pushButton_clicked(self):
         noDataValue = -9999
         m2mm = 1000.0
@@ -70,10 +175,6 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
                      h_scale, z_scale)
         
         raster_blocks = raster.createRasterBlocks()
-        
-        import time
-        
-        start = time.time()
         
         for i in raster_blocks:
             s_raster = gdal.Open(i)
@@ -137,7 +238,6 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
                     faces.append((v0, v2, v1, normal))
                     #stl_file.facet_writer()
         
-                    # print v1,v2,v3
                     # Calculate the second facet (just the one new point)
                     v3 = np.array([params['s_origin_x'] + params['s_pixel_width'] * (column + 1),
                                    params['s_origin_y'] +
@@ -149,7 +249,3 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
                 stl_file.facet_writer(v0, v1, v2, normal)
             stl_file.end_line_writer()
             stl_file = None
-        
-        
-        end = time.time() - start
-        print end
