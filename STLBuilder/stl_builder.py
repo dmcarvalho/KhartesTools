@@ -1,13 +1,14 @@
 import osgeo.gdal as gdal
 import numpy as np
 import os
+import math
 
 from geometry import pixel2Coord, calcBlockSize, calcNormal
 from raster import MDS
 from stl_writer import StlWriter
 
 from PyQt4 import QtGui, uic, QtCore
-from PyQt4.QtGui import QColor
+from PyQt4.QtGui import QColor, QMessageBox
 from PyQt4.QtCore import Qt
 from PyQt4.QtCore import pyqtSlot
 from numbers import Real
@@ -41,7 +42,7 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         self.message = None
         self.geometries_blocks = None 
         self.layers = {}   
-        self.layer_extent = None   
+        self.geo_blocks = []
         self.blocks = []
         self.setupUi(self) 
     def closeEvent(self, *args, **kwargs):
@@ -87,23 +88,44 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
     def on_layer_ComboBox_activated(self, i):
         self.paint_blocks()  
 
+
+    def validateParams(self):
+        if self.x_spinBox.value() == 0:
+            return (False, self.tr('Define X size model'))           
+        if self.y_spinBox.value() == 0:
+            return (False, self.tr('Define Y size model'))
+        if self.z_spinBox.value() == 0:
+            return (False, self.tr('Define Z size model'))
+        if self.h_scale_spinBox.value() == 0:
+            return (False, self.tr('Define Horizontal Scale'))                    
+        if self.v_exaggeration_doubleSpinBox.value() == 0:
+            return (False, self.tr('Define Vertical Exaggeration'))   
+        return (True, '')
+    
+    def calcBlockGeoSize(self, crs, distance, scale):
+        if crs.mapUnits() == 0:  # Meters
+            return distance*1000*scale
+        elif crs.mapUnits() == 2:  # Degree
+            return  distance * 1000 * scale * math.pi / 180 * 6371000
+        
     def calculateBlocks(self):
+        ok, msg = self.validateParams()
+        if not ok:
+            QMessageBox.warning(self, self.tr("Attention"), msg)
+            return []
+
         size_block_x = self.x_spinBox.value()
         size_block_y = self.y_spinBox.value()
         size_block_z = self.x_spinBox.value()
+        
         # dimensionless
         h_scale = 1.0 / self.h_scale_spinBox.value()
 
         layer_name = self.layer_ComboBox.currentText()
         layer = self.layers[layer_name]
  
-       
-        source = layer.crs()
-        wgs84_crs = QgsCoordinateReferenceSystem(4326, QgsCoordinateReferenceSystem.EpsgCrsId)
-        transform = QgsCoordinateTransform(source, wgs84_crs)
-        
+        source_src = layer.crs()
         rec = layer.extent()          
-        rec = transform.transform(rec)  
            
         #uppreleft
         xmin = rec.xMinimum()
@@ -111,21 +133,25 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         #upertight
         xmax = rec.xMaximum()
         ymin = rec.yMinimum()
-        
-        width_general = calcBlockSize(xmin, xmax, h_scale, size_block_x, 1000)
-        height_general = calcBlockSize(ymin, ymax, h_scale, size_block_y, 1000)
+       
+        width_general = self.calcBlockGeoSize(source_src, xmax-xmin, h_scale)
+        height_general = self.calcBlockGeoSize(source_src, ymax-ymin, h_scale)
                 
-        width_wgs_84 = xmax - xmin
-        height_wgs_84 = ymax - ymin
+        width_geo = xmax - xmin
+        height_geo = ymax - ymin
 
-        step_x = width_wgs_84/(width_general/size_block_x)
-        step_y = height_wgs_84/(height_general/size_block_y)
+        step_x = width_geo/(width_general/size_block_x)
+        step_y = height_geo/(height_general/size_block_y)
         
         num_blocks_x = int(width_general/size_block_x) + 1
         num_blocks_y = int(height_general/size_block_y) + 1
-
-        transform = QgsCoordinateTransform(wgs84_crs, source)
-        blocks = []
+        print num_blocks_x , num_blocks_y, width_general, height_general, width_geo, height_geo
+        
+        if num_blocks_x * num_blocks_y > 1000:
+            QMessageBox.warning(self, self.tr("Attention"), self.tr('This setting will produce many blocks. That seems wrong'))
+            return []
+            
+        self.geo_blocks = []
         for i in range(num_blocks_x):
             x_min = xmin + i * step_x
             if i < num_blocks_x-1:
@@ -138,9 +164,8 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
                     y_min = y_max - step_y
                 else:
                     y_min = ymin
-                rec = transform.transform(QgsRectangle(x_min, y_min, x_max, y_max))
-                blocks.append(rec)
-        return blocks
+                self.geo_blocks.append(QgsRectangle(x_min, y_min, x_max, y_max))
+        return self.geo_blocks
          
     def paint_blocks(self):
         self.erase_blocks()
@@ -151,18 +176,15 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         rec = layer.extent()
         
         source = layer.crs()
-        print type(source)
         target = self.map_crs
         transform = QgsCoordinateTransform(source, target)
-        rec = transform.transform(rec)            
-        self.layer_extent = self.paint_block(rec, {'Color': QColor(0, 0, 255, 255), 'Width': 5, 'LineStyle': Qt.PenStyle(Qt.SolidLine)})        
         
         for rec in self.calculateBlocks():
             rec = transform.transform(rec)
             self.blocks.append(self.paint_block(rec))
 
     
-    def paint_block(self, rec, params= {'Color': QColor(227, 26, 28, 255), 'Width': 2, 'LineStyle': Qt.PenStyle(Qt.DashDotLine)}):
+    def paint_block(self, rec, params= {'Color': QColor(255, 0, 0, 255), 'Width': 2, 'LineStyle': Qt.PenStyle(Qt.SolidLine)}):
         self.roi_x_max = rec.xMaximum()
         self.roi_y_min = rec.yMinimum()
         self.roi_x_min = rec.xMinimum()
@@ -183,10 +205,7 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         if self.blocks:
             for block in self.blocks:
                 self.erase_block(block)
-        if self.layer_extent:
-            self.erase_block(self.layer_extent)          
         self.blocks = None
-        self.layer_extent = None
 
     def erase_block(self, block):
         self.canvas.scene().removeItem(block)
