@@ -16,6 +16,7 @@ from numbers import Real
 from qgis.gui import QgsRubberBand
 from qgis._core import QgsPoint, QgsGeometry, QgsCoordinateTransform, QgsRectangle
 from qgis.core import QgsCoordinateReferenceSystem
+from subprocess import call
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
 os.path.dirname(__file__), 'stl_builder.ui'))
@@ -165,7 +166,7 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
                 else:
                     y_min = ymin
                 self.geo_blocks.append(QgsRectangle(x_min, y_min, x_max, y_max))
-        return self.geo_blocks
+        self.geo_blocks
          
     def paint_blocks(self):
         self.erase_blocks()
@@ -178,8 +179,8 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         source = layer.crs()
         target = self.map_crs
         transform = QgsCoordinateTransform(source, target)
-        
-        for rec in self.calculateBlocks():
+        self.calculateBlocks()
+        for rec in self.geo_blocks:
             rec = transform.transform(rec)
             self.blocks.append(self.paint_block(rec))
 
@@ -234,6 +235,37 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
     
     @pyqtSlot()    
     def on_builder_pushButton_clicked(self):
+        ok, msg = self.validateParams()
+        if not ok:
+            QMessageBox.warning(self, self.tr("Attention"), msg)
+            return
+        
+        # dimensionless
+        h_scale = 1.0 / self.h_scale_spinBox.value()
+        z_scale = h_scale * self.v_exaggeration_doubleSpinBox.value()
+        
+        output_path = self.output_folder_LineEdit.text()
+        
+        layer_name = self.layer_ComboBox.currentText()
+        layer = self.layers[layer_name]
+        
+        layer_source = layer.source()
+        for i in range(len(self.geo_blocks)):
+            print i
+        for i in range(len(self.geo_blocks)):
+            rec = self.geo_blocks[i]
+            #uppreleft
+            ul_x = rec.xMinimum()
+            ul_y = rec.yMaximum()
+            #upertight
+            lr_x = rec.xMaximum()
+            lr_y = rec.yMinimum() 
+            block_name = os.path.join(output_path, '%s.tif' % (i))
+            comando_dem = 'gdal_translate -projwin %s %s %s %s -of GTiff %s %s' % (ul_x, ul_y, lr_x, lr_y, os.path.join('',layer_source), block_name)
+            call(comando_dem, shell=True)
+            #self.block_files.append(block_name)
+        '''        
+        
         noDataValue = -9999
         m2mm = 1000.0
         filePath = '/media/diego/SAMSUNG/srtm2stl/geo/raster/df_go.tif'
@@ -325,3 +357,4 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
                 stl_file.facet_writer(v0, v1, v2, normal)
             stl_file.end_line_writer()
             stl_file = None
+        '''
