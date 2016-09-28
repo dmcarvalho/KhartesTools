@@ -8,7 +8,7 @@ from raster import MDS
 from stl_writer import StlWriter
 
 from PyQt4 import QtGui, uic, QtCore
-from PyQt4.QtGui import QColor, QMessageBox
+from PyQt4.QtGui import QColor, QMessageBox, QProgressBar
 from PyQt4.QtCore import Qt
 from PyQt4.QtCore import pyqtSlot
 from numbers import Real
@@ -38,7 +38,6 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             self.map_crs = self.canvas.mapSettings().destinationCrs()
         except:
             self.map_crs = self.canvas.mapRenderer().destinationCrs()
-        
         output_folder_path = None
         self.message = None
         self.geometries_blocks = None 
@@ -46,11 +45,10 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         self.geo_blocks = []
         self.blocks = []
         self.setupUi(self) 
+        
     def closeEvent(self, *args, **kwargs):
-        print 'afasdgasdfg'
         self.erase_blocks()
         return QtGui.QDialog.closeEvent(self, *args, **kwargs)
-    
     
     def its_ok(self):
         its_ok = False
@@ -63,11 +61,10 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             self.message = self.tr("No visible raster layer loaded")
         return its_ok
     
-    
     def exec_(self, *args, **kwargs):
         for layer_name in self.layers.keys():
             self.layer_ComboBox.addItem(layer_name)
-            
+        self.paint_blocks()
         return QtGui.QDialog.exec_(self, *args, **kwargs)
     
     def finished(self, *args, **kwargs):
@@ -89,7 +86,6 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
     def on_layer_ComboBox_activated(self, i):
         self.paint_blocks()  
 
-
     def validateParams(self):
         if self.x_spinBox.value() == 0:
             return (False, self.tr('Define X size model'))           
@@ -100,7 +96,42 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         if self.h_scale_spinBox.value() == 0:
             return (False, self.tr('Define Horizontal Scale'))                    
         if self.v_exaggeration_doubleSpinBox.value() == 0:
-            return (False, self.tr('Define Vertical Exaggeration'))   
+            return (False, self.tr('Define Vertical Exaggeration'))  
+        
+        self.size_block_x = self.x_spinBox.value()
+        self.size_block_y = self.y_spinBox.value()
+        self.size_block_z = self.x_spinBox.value()
+        
+        # dimensionless
+        self.h_scale = 1.0 / self.h_scale_spinBox.value()
+
+        layer_name = self.layer_ComboBox.currentText()
+        self.layer = self.layers[layer_name]
+ 
+        source_src = self.layer.crs()
+        self.rec = self.layer.extent()          
+           
+        #uppreleft
+        xmin = self.rec.xMinimum()
+        ymax = self.rec.yMaximum()         
+        #upertight
+        xmax = self.rec.xMaximum()
+        ymin = self.rec.yMinimum()
+       
+        width_general = self.calcBlockGeoSize(source_src, xmax-xmin, self.h_scale)
+        height_general = self.calcBlockGeoSize(source_src, ymax-ymin, self.h_scale)
+                
+        width_geo = xmax - xmin
+        height_geo = ymax - ymin
+
+        self.step_x = width_geo/(width_general/self.size_block_x)
+        self.step_y = height_geo/(height_general/self.size_block_y)
+        
+        self.num_blocks_x = int(width_general/self.size_block_x) + 1
+        self.num_blocks_y = int(height_general/self.size_block_y) + 1
+        
+        if self.num_blocks_x * self.num_blocks_y > 1000:
+            return (False, self.tr('This setting will produce many blocks. That seems wrong'))
         return (True, '')
     
     def calcBlockGeoSize(self, crs, distance, scale):
@@ -115,54 +146,24 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             QMessageBox.warning(self, self.tr("Attention"), msg)
             return []
 
-        size_block_x = self.x_spinBox.value()
-        size_block_y = self.y_spinBox.value()
-        size_block_z = self.x_spinBox.value()
-        
-        # dimensionless
-        h_scale = 1.0 / self.h_scale_spinBox.value()
-
-        layer_name = self.layer_ComboBox.currentText()
-        layer = self.layers[layer_name]
- 
-        source_src = layer.crs()
-        rec = layer.extent()          
-           
         #uppreleft
-        xmin = rec.xMinimum()
-        ymax = rec.yMaximum()         
+        xmin = self.rec.xMinimum()
+        ymax = self.rec.yMaximum()         
         #upertight
-        xmax = rec.xMaximum()
-        ymin = rec.yMinimum()
-       
-        width_general = self.calcBlockGeoSize(source_src, xmax-xmin, h_scale)
-        height_general = self.calcBlockGeoSize(source_src, ymax-ymin, h_scale)
-                
-        width_geo = xmax - xmin
-        height_geo = ymax - ymin
-
-        step_x = width_geo/(width_general/size_block_x)
-        step_y = height_geo/(height_general/size_block_y)
-        
-        num_blocks_x = int(width_general/size_block_x) + 1
-        num_blocks_y = int(height_general/size_block_y) + 1
-        print num_blocks_x , num_blocks_y, width_general, height_general, width_geo, height_geo
-        
-        if num_blocks_x * num_blocks_y > 1000:
-            QMessageBox.warning(self, self.tr("Attention"), self.tr('This setting will produce many blocks. That seems wrong'))
-            return []
-            
+        xmax = self.rec.xMaximum()
+        ymin = self.rec.yMinimum()
+              
         self.geo_blocks = []
-        for i in range(num_blocks_x):
-            x_min = xmin + i * step_x
-            if i < num_blocks_x-1:
-                x_max = x_min + step_x
+        for i in range(self.num_blocks_x):
+            x_min = xmin + i * self.step_x
+            if i < self.num_blocks_x-1:
+                x_max = x_min + self.step_x
             else:
                 x_max = xmax
-            for j in range(num_blocks_y):          
-                y_max = ymax - j * step_y
-                if j < num_blocks_y-1:
-                    y_min = y_max - step_y
+            for j in range(self.num_blocks_y):          
+                y_max = ymax - j * self.step_y
+                if j < self.num_blocks_y-1:
+                    y_min = y_max - self.step_y
                 else:
                     y_min = ymin
                 self.geo_blocks.append(QgsRectangle(x_min, y_min, x_max, y_max))
@@ -217,7 +218,6 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         '''
         Closes the dialog
         '''
-        print 'entrou'
         self.erase_blocks()
         self.done(0)
         
@@ -239,19 +239,20 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         if not ok:
             QMessageBox.warning(self, self.tr("Attention"), msg)
             return
-        
-        # dimensionless
+        output_path = self.output_folder_LineEdit.text()
+        if not os.path.isdir(output_path):
+            QMessageBox.warning(self, self.tr("Attention"), self.tr('You must choose a directory.'))
+            return        # dimensionless
         h_scale = 1.0 / self.h_scale_spinBox.value()
         z_scale = h_scale * self.v_exaggeration_doubleSpinBox.value()
-        
-        output_path = self.output_folder_LineEdit.text()
         
         layer_name = self.layer_ComboBox.currentText()
         layer = self.layers[layer_name]
         
+        crs = layer.crs()
         layer_source = layer.source()
-        for i in range(len(self.geo_blocks)):
-            print i
+
+        
         for i in range(len(self.geo_blocks)):
             rec = self.geo_blocks[i]
             #uppreleft
@@ -264,28 +265,8 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             comando_dem = 'gdal_translate -projwin %s %s %s %s -of GTiff %s %s' % (ul_x, ul_y, lr_x, lr_y, os.path.join('',layer_source), block_name)
             call(comando_dem, shell=True)
             #self.block_files.append(block_name)
-        '''        
-        
-        noDataValue = -9999
-        m2mm = 1000.0
-        filePath = '/media/diego/SAMSUNG/srtm2stl/geo/raster/df_go.tif'
-        outPutPath = '/media/diego/SAMSUNG/srtm2stl/geo/resultado/'
-        
-        # millimeters
-        size_block_x = 190.* 7
-        size_block_y = 190.* 5
-        size_block_z = 190.
-        # dimensionless
-        h_scale = 1.0 / 100000.0
-        z_scale = 1.0 / 25000.0
-        
-        raster = MDS(filePath, outPutPath, size_block_x, size_block_y, size_block_z,
-                     h_scale, z_scale)
-        
-        raster_blocks = raster.createRasterBlocks()
-        
-        for i in raster_blocks:
-            s_raster = gdal.Open(i)
+
+            s_raster = gdal.Open(block_name)
             band = s_raster.GetRasterBand(1)
             grid = band.ReadAsArray()
         
@@ -302,11 +283,11 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             z_min = np.min(grid)
             z_max = np.max(grid)
         
-            ul = [s_origin_x, s_origin_y]
-            lr = pixel2Coord(s_colls, s_rows, geotransform)
+            ul = [ul_x, ul_y]
+            lr = [lr_x, lr_y]
         
-            x_extension = calcBlockSize(ul[0], lr[0], h_scale, size_block_x, m2mm)
-            y_extension = calcBlockSize(ul[1], lr[1], h_scale, size_block_x, m2mm)
+            x_extension = self.calcBlockGeoSize(crs, lr[0]-ul[0], h_scale)
+            y_extension = self.calcBlockGeoSize(crs, ul[1]-lr[1], h_scale)
         
             params = {}
             params['s_colls'] = s_colls
@@ -318,10 +299,9 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             params['s_x_rotation'] = geotransform[2]
             params['s_y_rotation'] = geotransform[4]
         
-            grid = (grid * m2mm) * z_scale
+            grid = (grid * 1000) * z_scale
 
-            stl_file_name = os.path.join(
-                outPutPath, '%s.stl' % os.path.basename(i)[:-4])
+            stl_file_name = os.path.join(output_path, '%s.stl' % os.path.basename(block_name)[:-4])
             stl_file = StlWriter(stl_file_name, False)
             stl_file.first_line_writer()
             faces = []
@@ -357,4 +337,7 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
                 stl_file.facet_writer(v0, v1, v2, normal)
             stl_file.end_line_writer()
             stl_file = None
-        '''
+        
+        QMessageBox.warning(self, self.tr("Attention"), self.tr('Successfully built files'))
+        self.erase_blocks()
+        self.done(0)
