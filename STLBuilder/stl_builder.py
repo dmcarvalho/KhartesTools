@@ -3,7 +3,6 @@ import numpy as np
 import os
 import math
 
-from geometry import pixel2Coord, calcBlockSize, calcNormal
 from raster import MDS
 from stl_writer import StlWriter
 
@@ -20,6 +19,16 @@ from subprocess import call
 
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
 os.path.dirname(__file__), 'stl_builder.ui'))
+
+
+def calcNormal(p0, p1, p2):
+    '''
+    Calcula o vetor normal ao plano definido pelos pontos nao colineares
+    p0, p1 e p2.
+    '''
+    v1 = p1 - p0
+    v2 = p2 - p0
+    return np.cross(v1, v2)
 
 
 
