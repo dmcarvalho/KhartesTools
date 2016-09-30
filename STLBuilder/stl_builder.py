@@ -3,7 +3,6 @@ import numpy as np
 import os
 import math
 
-from raster import MDS
 from stl_writer import StlWriter
 
 from PyQt4 import QtGui, uic, QtCore
@@ -47,18 +46,23 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             self.map_crs = self.canvas.mapSettings().destinationCrs()
         except:
             self.map_crs = self.canvas.mapRenderer().destinationCrs()
+            
         output_folder_path = None
         self.message = None
         self.geometries_blocks = None 
         self.layers = {}   
         self.geo_blocks = []
-        self.blocks = []
+        self.screen_blocks = []
         self.setupUi(self) 
         
     def closeEvent(self, *args, **kwargs):
         self.erase_blocks()
         return QtGui.QDialog.closeEvent(self, *args, **kwargs)
-    
+
+    def finished(self, *args, **kwargs):
+        self.erase_blocks()        
+        return QtGui.QDialog.finished(self, *args, **kwargs)
+       
     def its_ok(self):
         its_ok = False
         self.layers = {}
@@ -76,9 +80,7 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         self.paint_blocks()
         return QtGui.QDialog.exec_(self, *args, **kwargs)
     
-    def finished(self, *args, **kwargs):
-        self.erase_blocks()        
-        return QtGui.QDialog.finished(self, *args, **kwargs)
+
     
     @pyqtSlot(int, name='on_x_spinBox_valueChanged')
     @pyqtSlot(int, name='on_y_spinBox_valueChanged')
@@ -109,26 +111,28 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         
         self.size_block_x = self.x_spinBox.value()
         self.size_block_y = self.y_spinBox.value()
-        self.size_block_z = self.x_spinBox.value()
+        self.size_block_z = self.z_spinBox.value()
         
         # dimensionless
         self.h_scale = 1.0 / self.h_scale_spinBox.value()
-
-        layer_name = self.layer_ComboBox.currentText()
-        self.layer = self.layers[layer_name]
+        self.z_scale = self.h_scale * self.v_exaggeration_doubleSpinBox.value()
+        
+        self.layer_name = self.layer_ComboBox.currentText()
+        self.layer = self.layers[self.layer_name]
  
-        source_src = self.layer.crs()
-        self.rec = self.layer.extent()          
+        self.layer_source = self.layer.source()
+        self.layer_crs = self.layer.crs()
+        self.layer_rec = self.layer.extent()          
            
         #uppreleft
-        xmin = self.rec.xMinimum()
-        ymax = self.rec.yMaximum()         
+        xmin = self.layer_rec.xMinimum()
+        ymax = self.layer_rec.yMaximum()         
         #upertight
-        xmax = self.rec.xMaximum()
-        ymin = self.rec.yMinimum()
+        xmax = self.layer_rec.xMaximum()
+        ymin = self.layer_rec.yMinimum()
        
-        width_general = self.calcBlockGeoSize(source_src, xmax-xmin, self.h_scale)
-        height_general = self.calcBlockGeoSize(source_src, ymax-ymin, self.h_scale)
+        width_general = self.calcBlockGeoSize(self.layer_crs, xmax-xmin, self.h_scale)
+        height_general = self.calcBlockGeoSize(self.layer_crs, ymax-ymin, self.h_scale)
                 
         width_geo = xmax - xmin
         height_geo = ymax - ymin
@@ -141,6 +145,19 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         
         if self.num_blocks_x * self.num_blocks_y > 1000:
             return (False, self.tr('This setting will produce many blocks. That seems wrong'))
+        
+        s_raster = gdal.Open(self.layer_source)
+        band = s_raster.GetRasterBand(1)
+        grid = band.ReadAsArray()
+        
+        self.z_min = np.min(grid)
+        self.z_max = np.max(grid)
+        if (self.z_max-self.z_min)*1000*self.z_scale >= self.size_block_z:
+            v_exaggeration = round((self.size_block_z/((self.z_max-self.z_min)*1000))/self.h_scale, 2)
+            self.v_exaggeration_doubleSpinBox.setValue(v_exaggeration - 0.01)
+            return (False, self.tr('Vertical Exaggeration is very large. Select a value less than %s' % (v_exaggeration)))
+        s_raster = None
+            
         return (True, '')
     
     def calcBlockGeoSize(self, crs, distance, scale):
@@ -150,17 +167,12 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             return  distance * 1000 * scale * math.pi / 180 * 6371000
         
     def calculateBlocks(self):
-        ok, msg = self.validateParams()
-        if not ok:
-            QMessageBox.warning(self, self.tr("Attention"), msg)
-            return []
-
         #uppreleft
-        xmin = self.rec.xMinimum()
-        ymax = self.rec.yMaximum()         
+        xmin = self.layer_rec.xMinimum()
+        ymax = self.layer_rec.yMaximum()         
         #upertight
-        xmax = self.rec.xMaximum()
-        ymin = self.rec.yMinimum()
+        xmax = self.layer_rec.xMaximum()
+        ymin = self.layer_rec.yMinimum()
               
         self.geo_blocks = []
         for i in range(self.num_blocks_x):
@@ -180,22 +192,21 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
          
     def paint_blocks(self):
         self.erase_blocks()
-        self.blocks = []        
-        
-        layer_name = self.layer_ComboBox.currentText()
-        layer = self.layers[layer_name]
-        rec = layer.extent()
-        
-        source = layer.crs()
-        target = self.map_crs
-        transform = QgsCoordinateTransform(source, target)
+        self.screen_blocks = [] 
+        ok, msg = self.validateParams()
+        if not ok:
+            QMessageBox.warning(self, self.tr("Attention"), msg)
+            return []
+
         self.calculateBlocks()
+        
+        transform = QgsCoordinateTransform(self.layer_crs, self.map_crs)
         for rec in self.geo_blocks:
             rec = transform.transform(rec)
-            self.blocks.append(self.paint_block(rec))
+            self.screen_blocks.append(self.paint_block(rec))
 
     
-    def paint_block(self, rec, params= {'Color': QColor(255, 0, 0, 255), 'Width': 2, 'LineStyle': Qt.PenStyle(Qt.SolidLine)}):
+    def paint_block(self, rec):
         self.roi_x_max = rec.xMaximum()
         self.roi_y_min = rec.yMinimum()
         self.roi_x_min = rec.xMinimum()
@@ -206,17 +217,17 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
                   QgsPoint(self.roi_x_min, self.roi_y_max), QgsPoint(self.roi_x_min, self.roi_y_min),
                   QgsPoint(self.roi_x_max, self.roi_y_min)]
         block.setToGeometry(QgsGeometry.fromPolyline(points), None)
-        block.setColor(params['Color'])
-        block.setWidth(params['Width'])
-        block.setLineStyle(params['LineStyle'])
+        block.setColor(QColor(255, 0, 0, 255))
+        block.setWidth(2)
+        block.setLineStyle(Qt.PenStyle(Qt.SolidLine))
         self.canvas.refresh()
         return block
         
     def erase_blocks(self):
-        if self.blocks:
-            for block in self.blocks:
+        if self.screen_blocks:
+            for block in self.screen_blocks:
                 self.erase_block(block)
-        self.blocks = None
+        self.screen_blocks = None
 
     def erase_block(self, block):
         self.canvas.scene().removeItem(block)
@@ -252,16 +263,7 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         if not os.path.isdir(output_path):
             QMessageBox.warning(self, self.tr("Attention"), self.tr('You must choose a directory.'))
             return        # dimensionless
-        h_scale = 1.0 / self.h_scale_spinBox.value()
-        z_scale = h_scale * self.v_exaggeration_doubleSpinBox.value()
-        
-        layer_name = self.layer_ComboBox.currentText()
-        layer = self.layers[layer_name]
-        
-        crs = layer.crs()
-        layer_source = layer.source()
 
-        
         for i in range(len(self.geo_blocks)):
             rec = self.geo_blocks[i]
             #uppreleft
@@ -271,15 +273,13 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             lr_x = rec.xMaximum()
             lr_y = rec.yMinimum() 
             block_name = os.path.join(output_path, '%s.tif' % (i))
-            comando_dem = 'gdal_translate -projwin %s %s %s %s -of GTiff %s %s' % (ul_x, ul_y, lr_x, lr_y, os.path.join('',layer_source), block_name)
+            comando_dem = 'gdal_translate -projwin %s %s %s %s -of GTiff %s %s' % (ul_x, ul_y, lr_x, lr_y, os.path.join('',self.layer_source), block_name)
             call(comando_dem, shell=True)
             #self.block_files.append(block_name)
 
             s_raster = gdal.Open(block_name)
             band = s_raster.GetRasterBand(1)
             grid = band.ReadAsArray()
-        
-            z_min = np.min(grid)
         
             geotransform = s_raster.GetGeoTransform()
             s_origin_x = geotransform[0]  # decimal degree
@@ -295,55 +295,95 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             ul = [ul_x, ul_y]
             lr = [lr_x, lr_y]
         
-            x_extension = self.calcBlockGeoSize(crs, lr[0]-ul[0], h_scale)
-            y_extension = self.calcBlockGeoSize(crs, ul[1]-lr[1], h_scale)
+            x_extension = self.calcBlockGeoSize(self.layer_crs, lr[0]-ul[0], self.h_scale)
+            y_extension = self.calcBlockGeoSize(self.layer_crs, ul[1]-lr[1], self.h_scale)
         
-            params = {}
-            params['s_colls'] = s_colls
-            params['s_rows'] = s_rows
-            params['s_origin_x'] = 0
-            params['s_origin_y'] = y_extension
-            params['s_pixel_width'] = x_extension / s_colls
-            params['s_pixel_height'] = -y_extension / s_rows
-            params['s_x_rotation'] = geotransform[2]
-            params['s_y_rotation'] = geotransform[4]
+            s_origin_x = 0
+            s_origin_y = y_extension
+            s_pixel_width = x_extension / s_colls
+            s_pixel_height = -y_extension / s_rows
         
-            grid = (grid * 1000) * z_scale
+            grid = (grid * 1000) * self.z_scale
 
             stl_file_name = os.path.join(output_path, '%s.stl' % os.path.basename(block_name)[:-4])
             stl_file = StlWriter(stl_file_name, False)
             stl_file.first_line_writer()
-            faces = []
+            facets = []
+            #calculate facets of the surface
             for row in range(s_rows - 1):
                 for column in range(s_colls - 1):
-                    v0 = np.array([params['s_origin_x'] + params['s_pixel_width'] * column,
-                                   params['s_origin_y'] +
-                                   (params['s_pixel_height'] * row),
-                                   grid[row][column]])
-        
-                    v1 = np.array([params['s_origin_x'] + params['s_pixel_width'] * (column + 1),
-                                   params['s_origin_y'] +
-                                   (params['s_pixel_height'] * row),
-                                   grid[row][column + 1]])
-        
-                    v2 = np.array([params['s_origin_x'] + params['s_pixel_width'] * column,
-                                   params['s_origin_y'] +
-                                   (params['s_pixel_height'] * (row + 1)),
-                                   grid[row + 1][column]])
-        
+                    v0 = np.array([s_origin_x + s_pixel_width * column,grid[row][column]])
+                    v1 = np.array([s_origin_x + s_pixel_width * (column + 1),s_origin_y + (s_pixel_height * row), grid[row][column + 1]])
+                    v2 = np.array([s_origin_x + s_pixel_width * column, s_origin_y + (s_pixel_height * (row + 1)), grid[row + 1][column]])
                     normal = calcNormal(v0, v2, v1)
-                    faces.append((v0, v2, v1, normal))
-                    #stl_file.facet_writer()
-        
-                    # Calculate the second facet (just the one new point)
-                    v3 = np.array([params['s_origin_x'] + params['s_pixel_width'] * (column + 1),
-                                   params['s_origin_y'] +
-                                   (params['s_pixel_height'] * (row + 1)),
-                                   grid[row + 1][column + 1]])
+                    facets.append((v0, v2, v1, normal))
+                    
+                    v3 = np.array([s_origin_x + s_pixel_width * (column + 1), s_origin_y + (s_pixel_height * (row + 1)), grid[row + 1][column + 1]])
                     normal = calcNormal(v2, v3, v1)
-                    faces.append((v2, v3, v1, normal))
-            for v0, v1, v2, normal in faces:
-                stl_file.facet_writer(v0, v1, v2, normal)
+                    facets.append((v2, v3, v1, normal))
+            stl_file.facet_writer(facets)
+            
+            #calculate the wall
+            base = self.z_min  * 1000 * self.z_scale
+            height = s_origin_y + (s_pixel_height * s_rows)
+            facets = []
+            for column in range(s_colls - 1):
+                v0 = np.array([s_origin_x + s_pixel_width * column, s_origin_y, grid[0][column]])
+                v1 = np.array([s_origin_x + s_pixel_width * (column + 1), s_origin_y , grid[0][column + 1]])
+                v2 = np.array([s_origin_x + s_pixel_width * (column + 1), s_origin_y, base])
+                normal = calcNormal(v2,v0, v1)
+                facets.append(( v2, v0, v1, normal))
+                
+                v3 = np.array([s_origin_x + s_pixel_width * column, s_origin_y , grid[0][column]])
+                v4 = np.array([s_origin_x + s_pixel_width * column, s_origin_y , base])
+                v5 = np.array([s_origin_x + s_pixel_width * (column + 1), s_origin_y, base])
+                normal = calcNormal(v3, v5, v4)
+                facets.append((v3, v5, v4, normal))
+                
+                # another wal
+                v0 = np.array([s_origin_x + s_pixel_width * column, height, grid[s_rows-1][column]])
+                v1 = np.array([s_origin_x + s_pixel_width * (column + 1), height , grid[s_rows-1][column + 1]])
+                v2 = np.array([s_origin_x + s_pixel_width * (column + 1), height, base])
+                normal = calcNormal(v0, v2, v1)
+                facets.append(( v0, v2, v1, normal))
+                
+                v3 = np.array([s_origin_x + s_pixel_width * column, height , grid[s_rows-1][column]])
+                v4 = np.array([s_origin_x + s_pixel_width * column, height , base])
+                v5 = np.array([s_origin_x + s_pixel_width * (column + 1), height, base])
+                normal = calcNormal(v5, v3, v4)
+                facets.append((v5, v3, v4, normal))
+            stl_file.facet_writer(facets)
+
+            width = s_origin_x + s_pixel_width * s_colls
+            facets = []
+            for row in range(s_rows - 1):
+                v0 = np.array([s_origin_x, s_origin_y + s_pixel_height * row, grid[row][0]])
+                v1 = np.array([s_origin_x, s_origin_y + s_pixel_height * (row+1) , grid[row+1][0]])
+                v2 = np.array([s_origin_x, s_origin_y + s_pixel_height * (row+1), base])
+                normal = calcNormal(v0, v2, v1)
+                facets.append((v0, v2, v1, normal))
+                
+                v3 = np.array([s_origin_x, s_origin_y + s_pixel_height * row, grid[row][0]] )
+                v4 = np.array([s_origin_x, s_origin_y + s_pixel_height * (row+1), base])
+                v5 = np.array([s_origin_x, s_origin_y + s_pixel_height * row, base])
+                normal = calcNormal(v3, v5, v4)
+                facets.append((v3, v5, v4, normal))
+                
+                v0 = np.array([width, s_origin_y + s_pixel_height * row, grid[row][s_colls-1]])
+                v1 = np.array([width, s_origin_y + s_pixel_height * (row+1) , grid[row+1][s_colls-1]])
+                v2 = np.array([width, s_origin_y + s_pixel_height * (row+1), base])
+                normal = calcNormal(v2, v0, v1)
+                facets.append((v2, v0, v1, normal))
+                
+                v3 = np.array([width, s_origin_y + s_pixel_height * row, grid[row][s_colls-1]] )
+                v4 = np.array([width, s_origin_y + s_pixel_height * (row+1), base])
+                v5 = np.array([width, s_origin_y + s_pixel_height * row, base])
+                normal = calcNormal(v5, v3, v4)
+                facets.append((v5, v3, v4, normal))
+                  
+            stl_file.facet_writer(facets)
+            
+            
             stl_file.end_line_writer()
             stl_file = None
         
