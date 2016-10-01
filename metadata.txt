@@ -9,12 +9,14 @@
 [general]
 name=Khartes Tools
 qgisMinimumVersion=2.0
-description=This plugin gathers the tools developed by the company Khartes
+description=This plugin gathers the tools developed by Khartes Co.
 version=0.1
-author=Diego Moreira / Khartes Geoinformação
+author=Diego Moreira - Khartes Geoinformação
 email=diego@khartes.com.br
 
-about=Escrever about
+about= 
+	Khartes Tools with the following features:
+	- STL files building from Digital Elevation Models for 3d Printers.
 
 tracker=https://github.com/dmcarvalho/khartestools/issues
 repository=https://github.com/dmcarvalho/khartestools
