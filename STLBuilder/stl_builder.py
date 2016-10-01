@@ -262,8 +262,8 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         output_path = self.output_folder_LineEdit.text()
         if not os.path.isdir(output_path):
             QMessageBox.warning(self, self.tr("Attention"), self.tr('You must choose a directory.'))
-            return        # dimensionless
-
+            return        
+        self.progressBar.setRange(0, len(self.geo_blocks))
         for i in range(len(self.geo_blocks)):
             rec = self.geo_blocks[i]
             #uppreleft
@@ -312,7 +312,7 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             #calculate facets of the surface
             for row in range(s_rows - 1):
                 for column in range(s_colls - 1):
-                    v0 = np.array([s_origin_x + s_pixel_width * column,grid[row][column]])
+                    v0 = np.array([s_origin_x + s_pixel_width * column, s_origin_y + (s_pixel_height * row), grid[row][column]])
                     v1 = np.array([s_origin_x + s_pixel_width * (column + 1),s_origin_y + (s_pixel_height * row), grid[row][column + 1]])
                     v2 = np.array([s_origin_x + s_pixel_width * column, s_origin_y + (s_pixel_height * (row + 1)), grid[row + 1][column]])
                     normal = calcNormal(v0, v2, v1)
@@ -386,6 +386,7 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             
             stl_file.end_line_writer()
             stl_file = None
+            self.progressBar.setValue(i+1)
         
         QMessageBox.warning(self, self.tr("Attention"), self.tr('Successfully built files'))
         self.erase_blocks()
