@@ -388,6 +388,6 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             stl_file = None
             self.progressBar.setValue(i+1)
         
-        QMessageBox.warning(self, self.tr("Attention"), self.tr('Successfully built files'))
+        QMessageBox.warning(self, self.tr("Attention"), self.tr('Files built successfully'))
         self.erase_blocks()
         self.done(0)
