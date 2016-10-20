@@ -16,6 +16,8 @@ from qgis._core import QgsPoint, QgsGeometry, QgsCoordinateTransform, QgsRectang
 from qgis.core import QgsCoordinateReferenceSystem
 from subprocess import call
 
+m2mm = 1000.
+
 FORM_CLASS, _ = uic.loadUiType(os.path.join(
 os.path.dirname(__file__), 'stl_builder.ui'))
 
@@ -152,8 +154,8 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
         
         self.z_min = np.min(grid)
         self.z_max = np.max(grid)
-        if (self.z_max-self.z_min)*1000*self.z_scale >= self.size_block_z:
-            v_exaggeration = round((self.size_block_z/((self.z_max-self.z_min)*1000))/self.h_scale, 2)
+        if (self.z_max-self.z_min)*m2mm*self.z_scale >= self.size_block_z:
+            v_exaggeration = round((self.size_block_z/((self.z_max-self.z_min)*m2mm))/self.h_scale, 2)
             self.v_exaggeration_doubleSpinBox.setValue(v_exaggeration - 0.01)
             return (False, self.tr('Vertical Exaggeration is very large. Select a value less than %s' % (v_exaggeration)))
         s_raster = None
@@ -162,9 +164,9 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
     
     def calcBlockGeoSize(self, crs, distance, scale):
         if crs.mapUnits() == 0:  # Meters
-            return distance*1000*scale
+            return distance*m2mm*scale
         elif crs.mapUnits() == 2:  # Degree
-            return  distance * 1000 * scale * math.pi / 180 * 6371000
+            return  distance * m2mm * scale * math.pi / 180 * 6371000
         
     def calculateBlocks(self):
         #uppreleft
@@ -275,11 +277,12 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             block_name = os.path.join(output_path, '%s.tif' % (i))
             comando_dem = 'gdal_translate -projwin %s %s %s %s -of GTiff %s %s' % (ul_x, ul_y, lr_x, lr_y, os.path.join('',self.layer_source), block_name)
             call(comando_dem, shell=True)
-            #self.block_files.append(block_name)
 
             s_raster = gdal.Open(block_name)
             band = s_raster.GetRasterBand(1)
             grid = band.ReadAsArray()
+            
+            band.re()
         
             geotransform = s_raster.GetGeoTransform()
             s_origin_x = geotransform[0]  # decimal degree
@@ -303,8 +306,8 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             s_pixel_width = x_extension / s_colls
             s_pixel_height = -y_extension / s_rows
         
-            grid = (grid * 1000) * self.z_scale
-
+            grid = grid  * m2mm * self.z_scale  
+            
             stl_file_name = os.path.join(output_path, '%s.stl' % os.path.basename(block_name)[:-4])
             stl_file = StlWriter(stl_file_name, False)
             stl_file.first_line_writer()
@@ -324,7 +327,7 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             stl_file.facet_writer(facets)
             
             #calculate the wall
-            base = self.z_min  * 1000 * self.z_scale
+            base = self.z_min  * m2mm * self.z_scale
             height = s_origin_y + (s_pixel_height * s_rows)
             facets = []
             for column in range(s_colls - 1):
