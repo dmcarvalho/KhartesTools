@@ -10,7 +10,7 @@
 name=Khartes Tools
 qgisMinimumVersion=2.0
 description=This plugin gathers the tools developed by Khartes Co.
-version=0.1
+version=1.0
 author=Diego Moreira - Khartes Geoinformação
 email=diego@khartes.com.br
 
@@ -28,7 +28,7 @@ repository=https://github.com/dmcarvalho/khartestools
 # changelog=
 
 # Tags are comma separated with spaces allowed
-tags=dem, export, stl, 3d
+tags=dem, export, stl, 3d, srtm
 
 homepage=khartes.com.br
 icon=icon.png
