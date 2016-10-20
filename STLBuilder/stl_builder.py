@@ -5,16 +5,14 @@ import math
 
 from stl_writer import StlWriter
 
-from PyQt4 import QtGui, uic, QtCore
+from PyQt4 import QtGui, uic
 from PyQt4.QtGui import QColor, QMessageBox, QProgressBar
 from PyQt4.QtCore import Qt
 from PyQt4.QtCore import pyqtSlot
-from numbers import Real
 # QGIS imports
 from qgis.gui import QgsRubberBand
 from qgis._core import QgsPoint, QgsGeometry, QgsCoordinateTransform, QgsRectangle
 from qgis.core import QgsCoordinateReferenceSystem
-from subprocess import call
 
 m2mm = 1000.
 
@@ -254,7 +252,6 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             self.carregado = True
             self.output_folder_LineEdit.setText(self.output_folder_path)
     
-    
     @pyqtSlot()    
     def on_builder_pushButton_clicked(self):
         ok, msg = self.validateParams()
@@ -266,55 +263,51 @@ class STLBuilder(QtGui.QDialog, FORM_CLASS):
             QMessageBox.warning(self, self.tr("Attention"), self.tr('You must choose a directory.'))
             return        
         self.progressBar.setRange(0, len(self.geo_blocks))
+        
+        s_raster = gdal.Open(self.layer_source)
+        band = s_raster.GetRasterBand(1)
+        #grid_base = band.ReadAsArray()
+        geotransform = s_raster.GetGeoTransform()
+        
+        s_pixel_width = geotransform[1]
+        s_pixel_height = geotransform[5]
+    
+        
         for i in range(len(self.geo_blocks)):
             rec = self.geo_blocks[i]
             #uppreleft
             ul_x = rec.xMinimum()
+            ul_x_pixel = int((ul_x - geotransform[0]) / geotransform[1]) 
             ul_y = rec.yMaximum()
+            ul_y_pixel = int((ul_y - geotransform[3]) / geotransform[5]) 
             #upertight
             lr_x = rec.xMaximum()
+            lr_x_pixel = int((lr_x - geotransform[0]) / geotransform[1]) 
             lr_y = rec.yMinimum() 
-            block_name = os.path.join(output_path, '%s.tif' % (i))
-            comando_dem = 'gdal_translate -projwin %s %s %s %s -of GTiff %s %s' % (ul_x, ul_y, lr_x, lr_y, os.path.join('',self.layer_source), block_name)
-            call(comando_dem, shell=True)
+            lr_y_pixel = int((lr_y - geotransform[3]) / geotransform[5])
 
-            s_raster = gdal.Open(block_name)
-            band = s_raster.GetRasterBand(1)
-            grid = band.ReadAsArray()
+            s_colls = lr_x_pixel-ul_x_pixel
+            s_rows = lr_y_pixel-ul_y_pixel
+
+            x_extension = self.calcBlockGeoSize(self.layer_crs, lr_x-ul_x, self.h_scale)
+            y_extension = self.calcBlockGeoSize(self.layer_crs, ul_y-lr_y, self.h_scale)
             
-            band.re()
-        
-            geotransform = s_raster.GetGeoTransform()
-            s_origin_x = geotransform[0]  # decimal degree
-            s_origin_y = geotransform[3]  # decimal degree
-            s_pixel_width = geotransform[1]
-            s_pixel_height = geotransform[5]
-        
-            s_colls = s_raster.RasterXSize
-            s_rows = s_raster.RasterYSize
-            z_min = np.min(grid)
-            z_max = np.max(grid)
-        
-            ul = [ul_x, ul_y]
-            lr = [lr_x, lr_y]
-        
-            x_extension = self.calcBlockGeoSize(self.layer_crs, lr[0]-ul[0], self.h_scale)
-            y_extension = self.calcBlockGeoSize(self.layer_crs, ul[1]-lr[1], self.h_scale)
-        
             s_origin_x = 0
             s_origin_y = y_extension
             s_pixel_width = x_extension / s_colls
             s_pixel_height = -y_extension / s_rows
-        
+            
+            grid = band.ReadAsArray(ul_x_pixel, ul_y_pixel, s_colls, s_rows)
+            
             grid = grid  * m2mm * self.z_scale  
             
-            stl_file_name = os.path.join(output_path, '%s.stl' % os.path.basename(block_name)[:-4])
+            stl_file_name = os.path.join(output_path, '%s.stl' % i)
             stl_file = StlWriter(stl_file_name, False)
             stl_file.first_line_writer()
             facets = []
             #calculate facets of the surface
-            for row in range(s_rows - 1):
-                for column in range(s_colls - 1):
+            for row in range(s_rows-1):
+                for column in range(s_colls-1):
                     v0 = np.array([s_origin_x + s_pixel_width * column, s_origin_y + (s_pixel_height * row), grid[row][column]])
                     v1 = np.array([s_origin_x + s_pixel_width * (column + 1),s_origin_y + (s_pixel_height * row), grid[row][column + 1]])
                     v2 = np.array([s_origin_x + s_pixel_width * column, s_origin_y + (s_pixel_height * (row + 1)), grid[row + 1][column]])
